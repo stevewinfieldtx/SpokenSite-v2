@@ -9,7 +9,7 @@ interface InterviewProps {
 }
 
 export default function Interview({ onComplete }: InterviewProps) {
-    const [status, setStatus] = useState<'idle' | 'connecting' | 'connected' | 'finished'>('idle');
+    const [status, setStatus] = useState<'idle' | 'connecting' | 'connected' | 'finished' | 'processing'>('idle');
     const [conversation, setConversation] = useState<any>(null); // Conversation type is slightly complex, using any for safety or I can import the type if available
     const [conversationId, setConversationId] = useState<string | null>(null);
 
@@ -37,6 +37,7 @@ export default function Interview({ onComplete }: InterviewProps) {
 
     const endInterview = useCallback(async () => {
         if (conversation) {
+            setStatus('processing'); // Visual feedback immediately
             await conversation.endSession();
             setStatus('finished');
             if (conversationId) {
@@ -55,7 +56,7 @@ export default function Interview({ onComplete }: InterviewProps) {
                     {status === 'idle' && "Click start to begin the interview."}
                     {status === 'connecting' && "Connecting to AI..."}
                     {status === 'connected' && "Listening... Click stop when you're done."}
-                    {status === 'finished' && "Interview completed."}
+                    {(status === 'finished' || status === 'processing') && "Interview completed. Processing..."}
                 </p>
             </div>
 
@@ -65,7 +66,7 @@ export default function Interview({ onComplete }: InterviewProps) {
                     ? 'bg-indigo-100 dark:bg-indigo-900/30 ring-4 ring-indigo-500/20 scale-110 animate-pulse'
                     : 'bg-slate-100 dark:bg-slate-800'
                     }`}>
-                    {status === 'connecting' ? (
+                    {status === 'connecting' || status === 'processing' ? (
                         <Loader2 className="w-12 h-12 text-indigo-600 animate-spin" />
                     ) : (
                         <Mic className={`w-12 h-12 transition-colors ${status === 'connected' ? 'text-indigo-600' : 'text-slate-400'
@@ -91,6 +92,12 @@ export default function Interview({ onComplete }: InterviewProps) {
                         <Square className="w-5 h-5 fill-current" />
                         Finish Interview
                     </button>
+                )}
+
+                {status === 'processing' && (
+                    <div className="text-indigo-600 font-medium animate-pulse">
+                        Saving conversation...
+                    </div>
                 )}
             </div>
         </div>
