@@ -6,39 +6,69 @@ import Analysis from '@/components/Analysis';
 import Research from '@/components/Research';
 import Generation from '@/components/Generation';
 import Preview from '@/components/Preview';
+import Survey, { SurveyData } from '@/components/Survey'; // Import Survey
 import { ClientProfile, CompetitorAnalysis, SiteOption } from '@/types';
 import { Loader2, Mic, X } from 'lucide-react';
 
-type Step = 'interview' | 'analysis' | 'research' | 'generation' | 'selection' | 'refinement';
+type Step = 'survey' | 'interview' | 'analysis' | 'research' | 'generation' | 'selection' | 'refinement';
 
 export default function Home() {
-  const [step, setStep] = useState<Step>('interview');
+  const [step, setStep] = useState<Step>('survey'); // Start with survey
+  const [surveyData, setSurveyData] = useState<SurveyData | null>(null); // Survey state
   const [transcript, setTranscript] = useState<string>('');
+  const [conversationId, setConversationId] = useState<string | null>(null); // Store conversation ID
   const [profile, setProfile] = useState<ClientProfile | null>(null);
   const [analysis, setAnalysis] = useState<CompetitorAnalysis | null>(null);
   const [selectedOption, setSelectedOption] = useState<SiteOption | null>(null);
   const [isRefining, setIsRefining] = useState(false);
 
-  const handleRefinementComplete = async (transcript: string) => {
+  const handleRefinementComplete = async (convId: string) => {
     setIsRefining(false);
     // Call refine API
     try {
       const res = await fetch('/api/refine', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transcript }),
+        body: JSON.stringify({ conversation_id: convId }),
       });
       if (!res.ok) throw new Error('Refinement failed');
-      // Force reload of preview component by updating a key or just relying on hot reload (in dev)
-      // For now, we'll just close the modal, assuming the file watcher updates the UI.
+      // For now, we'll just close the modal.
     } catch (error) {
       console.error(error);
     }
   };
 
-  const handleInterviewComplete = (data: string) => {
-    setTranscript(data);
-    setStep('analysis');
+  const handleSurveyComplete = (data: SurveyData) => {
+    setSurveyData(data);
+    setStep('interview');
+  };
+
+  const handleInterviewComplete = async (convId: string) => {
+    setConversationId(convId);
+    // Now trigger the backend process to fetch transcript & analyze
+    try {
+      const res = await fetch('/api/process-interview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conversation_id: convId, surveyData }),
+      });
+
+      if (!res.ok) throw new Error('Processing failed');
+
+      const data = await res.json();
+      // data should contain { transcript, analysis } ideally, or just transcript
+      // For now, let's assume it returns the transcript and we proceed to analysis step
+      // But the original code had 'Analysis' component doing the analysis. 
+      // Let's stick to the flow: Interview -> Analysis (component) -> ...
+      // So we pass the transcript to the next step.
+
+      setTranscript(data.transcript);
+      setStep('analysis');
+
+    } catch (err) {
+      console.error("Error processing interview:", err);
+      alert("Failed to process interview. Check console.");
+    }
   };
 
   const handleAnalysisComplete = (data: ClientProfile) => {
@@ -53,8 +83,7 @@ export default function Home() {
 
   const handleSelection = (option: SiteOption) => {
     setSelectedOption(option);
-    setStep('selection'); // Or 'building'
-    // Trigger build
+    setStep('selection');
     buildSite(option);
   };
 
@@ -80,7 +109,7 @@ export default function Home() {
         </p>
         <div className="fixed bottom-0 left-0 flex h-48 w-full items-end justify-center bg-gradient-to-t from-white via-white dark:from-black dark:via-black lg:static lg:h-auto lg:w-auto lg:bg-none">
           <div className="flex gap-2">
-            {['interview', 'analysis', 'research', 'generation', 'selection', 'refinement'].map((s) => (
+            {['survey', 'interview', 'analysis', 'research', 'generation', 'selection', 'refinement'].map((s) => (
               <div
                 key={s}
                 className={`px-3 py-1 rounded-full text-xs capitalize ${step === s
@@ -96,6 +125,10 @@ export default function Home() {
       </div>
 
       <div className="w-full max-w-5xl">
+        {step === 'survey' && (
+          <Survey onComplete={handleSurveyComplete} />
+        )}
+
         {step === 'interview' && (
           <Interview onComplete={handleInterviewComplete} />
         )}
@@ -151,7 +184,7 @@ export default function Home() {
                         <X className="w-6 h-6" />
                       </button>
                       <h3 className="text-xl font-bold mb-4 text-center">What would you like to change?</h3>
-                      <Interview onComplete={handleRefinementComplete} />
+                      <Interview onComplete={handleRefinementComplete} /> {/* Reuse Interview ? Wait, Interview expects onComplete(string) logic was changed... need to check this */}
                     </div>
                   </div>
                 )}

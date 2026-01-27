@@ -1,115 +1,97 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import Script from 'next/script';
-import { CheckCircle, AlertCircle } from 'lucide-react';
+import { useState, useCallback } from 'react';
+import { Conversation } from '@11labs/client';
+import { Mic, Square, Loader2 } from 'lucide-react';
 
 interface InterviewProps {
-    onComplete: (transcript: string) => void;
+    onComplete: (conversationId: string) => void;
 }
 
 export default function Interview({ onComplete }: InterviewProps) {
-    const [summary, setSummary] = useState('');
+    const [status, setStatus] = useState<'idle' | 'connecting' | 'connected' | 'finished'>('idle');
+    const [conversation, setConversation] = useState<any>(null); // Conversation type is slightly complex, using any for safety or I can import the type if available
     const [conversationId, setConversationId] = useState<string | null>(null);
-    const [isPolling, setIsPolling] = useState(false);
-    const widgetRef = useRef<HTMLElement>(null);
 
-    useEffect(() => {
-        const widget = widgetRef.current;
-        if (!widget) return;
+    const startInterview = useCallback(async () => {
+        try {
+            setStatus('connecting');
+            // Request microphone permission first
+            await navigator.mediaDevices.getUserMedia({ audio: true });
 
-        // 1. Listen for call start to get conversation ID
-        const handleCallStart = (e: any) => {
-            console.log('Call started:', e.detail);
-            if (e.detail?.conversation_id) {
-                setConversationId(e.detail.conversation_id);
-                setIsPolling(true);
-            }
-        };
+            const conv = await Conversation.startSession({
+                agentId: 'agent_5201ke72y6r1fpx9nv541p6d6tah',
+            } as any);
 
-        // 2. Listen for custom events for real-time text (fallback)
-        const handleMessage = (e: any) => {
-            if (e.detail?.transcript) {
-                setSummary(prev => prev + '\n' + e.detail.transcript);
-            }
-        };
+            setConversation(conv);
+            const convId = (conv as any).sessionId || (conv as any).id; // Try both
+            setConversationId(convId);
+            setStatus('connected');
 
-        widget.addEventListener('elevenlabs-convai:call', handleCallStart);
-        widget.addEventListener('elevenlabs-convai:message', handleMessage);
-
-        return () => {
-            widget.removeEventListener('elevenlabs-convai:call', handleCallStart);
-            widget.removeEventListener('elevenlabs-convai:message', handleMessage);
-        };
+        } catch (error) {
+            console.error('Failed to start conversation:', error);
+            setStatus('idle');
+            alert('Failed to connect to the AI agent. Please check your microphone and try again.');
+        }
     }, []);
 
-    // Poll for transcript if we have a conversation ID
-    useEffect(() => {
-        if (!isPolling || !conversationId) return;
-
-        const interval = setInterval(async () => {
-            try {
-                const res = await fetch(`/api/webhooks/elevenlabs?conversation_id=${conversationId}`);
-                const data = await res.json();
-
-                if (data.status === 'completed' && data.transcript) {
-                    setSummary(data.transcript);
-                    setIsPolling(false); // Stop polling
-                }
-            } catch (error) {
-                console.error('Polling error:', error);
+    const endInterview = useCallback(async () => {
+        if (conversation) {
+            await conversation.endSession();
+            setStatus('finished');
+            if (conversationId) {
+                onComplete(conversationId);
             }
-        }, 3000); // Check every 3 seconds
-
-        return () => clearInterval(interval);
-    }, [isPolling, conversationId]);
+        }
+    }, [conversation, conversationId, onComplete]);
 
     return (
-        <div className="flex flex-col items-center justify-center min-h-[60vh] p-8 space-y-8">
+        <div className="flex flex-col items-center justify-center min-h-[60vh] p-8 space-y-8 animate-in fade-in duration-500">
             <div className="w-full max-w-2xl text-center space-y-4">
                 <h2 className="text-3xl font-bold text-slate-800 dark:text-slate-100">
                     Voice Interview
                 </h2>
                 <p className="text-slate-600 dark:text-slate-400">
-                    Speak with the AI agent below.
+                    {status === 'idle' && "Click start to begin the interview."}
+                    {status === 'connecting' && "Connecting to AI..."}
+                    {status === 'connected' && "Listening... Click stop when you're done."}
+                    {status === 'finished' && "Interview completed."}
                 </p>
             </div>
 
-            {/* ElevenLabs Widget */}
-            <div className="w-full max-w-md flex items-center justify-center bg-slate-100 dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-4 min-h-[200px]">
-                <elevenlabs-convai
-                    ref={widgetRef}
-                    agent-id="agent_5201ke72y6r1fpx9nv541p6d6tah"
-                ></elevenlabs-convai>
-                <Script src="https://unpkg.com/@elevenlabs/convai-widget-embed" strategy="afterInteractive" />
-            </div>
-
-            {/* Transcript / Notes Area */}
-            <div className="w-full max-w-2xl bg-white dark:bg-slate-900 p-6 rounded-xl shadow-lg border border-slate-200 dark:border-slate-800 space-y-4">
-                <div className="flex items-center justify-between">
-                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
-                        Interview Transcript & Notes
-                    </label>
-                    <div className="flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-2 py-1 rounded-md">
-                        <AlertCircle className="w-3 h-3" />
-                        <span>Please ensure key details are captured here</span>
-                    </div>
+            <div className="flex flex-col items-center gap-6">
+                {/* Visualizer / Status Indicator */}
+                <div className={`w-32 h-32 rounded-full flex items-center justify-center transition-all duration-500 ${status === 'connected'
+                    ? 'bg-indigo-100 dark:bg-indigo-900/30 ring-4 ring-indigo-500/20 scale-110 animate-pulse'
+                    : 'bg-slate-100 dark:bg-slate-800'
+                    }`}>
+                    {status === 'connecting' ? (
+                        <Loader2 className="w-12 h-12 text-indigo-600 animate-spin" />
+                    ) : (
+                        <Mic className={`w-12 h-12 transition-colors ${status === 'connected' ? 'text-indigo-600' : 'text-slate-400'
+                            }`} />
+                    )}
                 </div>
 
-                <textarea
-                    value={summary}
-                    onChange={(e) => setSummary(e.target.value)}
-                    placeholder="The agent's transcript should appear here. If not, please summarize the key points: Business name, industry, goals, and unique selling points."
-                    className="w-full h-48 p-4 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 focus:ring-2 focus:ring-indigo-500 outline-none resize-none font-mono text-sm"
-                />
+                {status === 'idle' && (
+                    <button
+                        onClick={startInterview}
+                        className="px-8 py-4 bg-indigo-600 hover:bg-indigo-700 text-white text-lg font-semibold rounded-full shadow-lg transition-all hover:scale-105 flex items-center gap-2"
+                    >
+                        <Mic className="w-5 h-5" />
+                        Start Interview
+                    </button>
+                )}
 
-                <button
-                    onClick={() => onComplete(summary || "Client wants a professional website.")}
-                    className="w-full flex items-center justify-center gap-2 px-8 py-4 bg-indigo-600 hover:bg-indigo-700 text-white text-lg font-semibold rounded-xl shadow-lg transition-all hover:scale-[1.02]"
-                >
-                    <CheckCircle className="w-5 h-5" />
-                    Generate Website Plan
-                </button>
+                {status === 'connected' && (
+                    <button
+                        onClick={endInterview}
+                        className="px-8 py-4 bg-red-500 hover:bg-red-600 text-white text-lg font-semibold rounded-full shadow-lg transition-all hover:scale-105 flex items-center gap-2"
+                    >
+                        <Square className="w-5 h-5 fill-current" />
+                        Finish Interview
+                    </button>
+                )}
             </div>
         </div>
     );

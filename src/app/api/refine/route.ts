@@ -4,7 +4,27 @@ import fs from 'fs/promises';
 import path from 'path';
 
 export async function POST(req: Request) {
-    const { transcript } = await req.json();
+    const { transcript: providedTranscript, conversation_id } = await req.json();
+
+    let transcript = providedTranscript;
+
+    // If conversation_id is provided, fetch transcript from ElevenLabs
+    if (!transcript && conversation_id) {
+        const apiKey = process.env.ELEVENLABS_API_KEY;
+        if (apiKey) {
+            const response = await fetch(`https://api.elevenlabs.io/v1/convai/conversations/${conversation_id}`, {
+                headers: { 'xi-api-key': apiKey },
+            });
+            if (response.ok) {
+                const data = await response.json();
+                transcript = data.transcript.map((t: any) => `${t.role === 'agent' ? 'AI' : 'User'}: ${t.message}`).join('\n');
+            }
+        }
+    }
+
+    if (!transcript) {
+        return new Response('Missing transcript or conversation_id', { status: 400 });
+    }
 
     // Read current code
     const filePath = path.join(process.cwd(), 'src', 'components', 'generated', 'CurrentSite.tsx');

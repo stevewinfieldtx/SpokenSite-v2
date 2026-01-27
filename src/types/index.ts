@@ -14,6 +14,12 @@ export interface InterviewState {
     transcript: string;
 }
 
+export interface SurveyData {
+    businessName: string;
+    industry: string;
+    existingUrl: string;
+}
+
 export interface ClientProfile {
     businessName: string;
     industry: string;

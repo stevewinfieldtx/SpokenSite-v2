@@ -17,44 +17,52 @@ const CompetitorAnalysisSchema = z.object({
 });
 
 export async function researchCompetitors(businessType: string): Promise<CompetitorAnalysis> {
-    // 1. Search for competitors
+    // 1. Search for competitors (try Tavily, fallback to LLM knowledge)
+    let context = "";
+
     const tavilyApiKey = process.env.TAVILY_API_KEY;
-    if (!tavilyApiKey) {
-        throw new Error('Missing TAVILY_API_KEY');
+    if (tavilyApiKey) {
+        try {
+            const query = `top competitors for ${businessType} business`;
+            const searchResponse = await fetch('https://api.tavily.com/search', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    api_key: tavilyApiKey,
+                    query,
+                    search_depth: 'advanced',
+                    include_answer: true,
+                    max_results: 5,
+                }),
+            });
+
+            if (searchResponse.ok) {
+                const searchData = await searchResponse.json();
+                context = JSON.stringify(searchData.results);
+            } else {
+                console.warn("Tavily API returned error", searchResponse.statusText);
+            }
+        } catch (err) {
+            console.warn("Tavily search failed, falling back to LLM knowledge", err);
+        }
+    } else {
+        console.log("No TAVILY_API_KEY found, using LLM knowledge base.");
     }
 
-    const query = `top competitors for ${businessType} business`;
+    // 2. Analyze results or generate based on knowledge
+    const systemPrompt = context
+        ? `You are an expert market researcher. Analyze the provided search results to identify key competitors, their strengths/weaknesses, and market gaps.`
+        : `You are an expert market researcher. You do not have access to live search results right now, so you must use your broad knowledge base to identify likely STANDARD competitors and market norms for this industry. Generate a realistic 'Market Positioning Analysis' based on typical industry patterns.`;
 
-    const searchResponse = await fetch('https://api.tavily.com/search', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-            api_key: tavilyApiKey,
-            query,
-            search_depth: 'advanced',
-            include_answer: true,
-            max_results: 5,
-        }),
-    });
+    const userPrompt = context
+        ? `Analyze these search results for a "${businessType}" business:\n${context}\n\nProvide a detailed competitor analysis.`
+        : `Perform a Market Positioning Analysis for a "${businessType}" business based on your knowledge of the industry. Identify typical competitors (real or representative types), strengths, weaknesses, and market gaps.`;
 
-    if (!searchResponse.ok) {
-        throw new Error(`Tavily API error: ${searchResponse.statusText}`);
-    }
-
-    const searchData = await searchResponse.json();
-    const context = JSON.stringify(searchData.results);
-
-    // 2. Analyze results with AI
     const { object } = await generateObject({
-        model: openrouter(defaultModel), // Use the default model (Claude 3.5 Sonnet) for better analysis
+        model: openrouter(defaultModel),
         schema: CompetitorAnalysisSchema,
-        system: `You are an expert market researcher. Analyze the provided search results to identify key competitors, their strengths/weaknesses, and market gaps.`,
-        prompt: `Analyze these search results for a "${businessType}" business:
-    ${context}
-    
-    Provide a detailed competitor analysis.`,
+        system: systemPrompt,
+        prompt: userPrompt,
     });
 
     return object;
